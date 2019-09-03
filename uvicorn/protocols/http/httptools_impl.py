@@ -152,7 +152,8 @@ class HttpToolsProtocol(asyncio.Protocol):
         except httptools.parser.errors.HttpParserError as exc:
             msg = "Invalid HTTP request received."
             self.logger.warning(msg)
-            self.transport.close()
+            self.send_400_response(msg)
+            return
         except httptools.HttpParserUpgrade as exc:
             self.handle_upgrade()
 
@@ -165,20 +166,7 @@ class HttpToolsProtocol(asyncio.Protocol):
         if upgrade_value != b"websocket" or self.ws_protocol_class is None:
             msg = "Unsupported upgrade request."
             self.logger.warning(msg)
-            content = [STATUS_LINE[400]]
-            for name, value in self.default_headers:
-                content.extend([name, b": ", value, b"\r\n"])
-            content.extend(
-                [
-                    b"content-type: text/plain; charset=utf-8\r\n",
-                    b"content-length: " + str(len(msg)).encode("ascii") + b"\r\n",
-                    b"connection: close\r\n",
-                    b"\r\n",
-                    msg.encode("ascii"),
-                ]
-            )
-            self.transport.write(b"".join(content))
-            self.transport.close()
+            self.send_400_response(msg)
             return
 
         self.connections.discard(self)
@@ -193,6 +181,21 @@ class HttpToolsProtocol(asyncio.Protocol):
         protocol.connection_made(self.transport)
         protocol.data_received(b"".join(output))
         self.transport.set_protocol(protocol)
+
+    def send_400_response(self, msg):
+        content = [STATUS_LINE[400]]
+        for name, value in self.default_headers:
+            content.extend([name, b": ", value, b"\r\n"])
+        content.extend([
+            b"content-type: text/plain; charset=utf-8\r\n",
+            b"content-length: " + str(len(msg)).encode('ascii') + b"\r\n",
+            b"connection: close\r\n",
+            b"\r\n",
+            msg.encode('ascii')
+        ])
+        self.transport.write(b"".join(content))
+        self.transport.close()
+        return
 
     # Parser callbacks
     def on_url(self, url):
@@ -395,6 +398,21 @@ class RequestResponseCycle:
                 self.transport.close()
         finally:
             self.on_response = None
+
+    async def send_400_response(self):
+        await self.send(
+            {
+                "type": "http.response.start",
+                "status": 400,
+                "headers": [
+                    (b"content-type", b"text/plain; charset=utf-8"),
+                    (b"connection", b"close"),
+                ],
+            }
+        )
+        await self.send(
+            {"type": "http.response.body", "body": b"Bad request"}
+        )
 
     async def send_500_response(self):
         await self.send(

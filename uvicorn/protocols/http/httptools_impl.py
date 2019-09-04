@@ -399,21 +399,6 @@ class RequestResponseCycle:
         finally:
             self.on_response = None
 
-    async def send_400_response(self):
-        await self.send(
-            {
-                "type": "http.response.start",
-                "status": 400,
-                "headers": [
-                    (b"content-type", b"text/plain; charset=utf-8"),
-                    (b"connection", b"close"),
-                ],
-            }
-        )
-        await self.send(
-            {"type": "http.response.body", "body": b"Bad request"}
-        )
-
     async def send_500_response(self):
         await self.send(
             {
